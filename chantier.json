@@ -1,0 +1,97 @@
+{
+  "users": [
+    {
+      "id": 1,
+      "email": "proprietaire@chantier.local",
+      "password_hash": "$2a$10$AAxY9Okkjl/iCZ3ZwHKxouwOvr3Whr2VIvrf.ugZVldvuNLIbvGHe",
+      "name": "Propriétaire",
+      "role": "owner",
+      "trade": null
+    },
+    {
+      "id": 2,
+      "email": "macon@chantier.local",
+      "password_hash": "$2a$10$b.Pl0XTKqHsNcmlVvpkkmO53wOlsJRQdYTotnZ2v91DJF6yVjVTu2",
+      "name": "Équipe Maçonnerie",
+      "role": "artisan",
+      "trade": "macon"
+    },
+    {
+      "id": 3,
+      "email": "menuisier@chantier.local",
+      "password_hash": "$2a$10$W5hfArzSEqxePYeAx8GHV.Ekx3FnZU9V/MBhmA4MIVJFZaKYd3A/q",
+      "name": "Équipe Menuiserie",
+      "role": "artisan",
+      "trade": "menuisier"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "tr2i7fdp",
+      "photos": [],
+      "audio": null,
+      "comment": "",
+      "trade": "macon",
+      "title": "Implantation et piquetage",
+      "description": "Traçage des axes de fondation au sol selon le plan de masse.",
+      "montant": 60000,
+      "status": "paye"
+    },
+    {
+      "id": "t2ly8982",
+      "photos": [],
+      "audio": null,
+      "comment": "",
+      "trade": "macon",
+      "title": "Fouilles en rigole",
+      "description": "Terrassement des tranchées de fondation à la profondeur hors gel.",
+      "montant": 180000,
+      "status": "valide"
+    },
+    {
+      "id": "thrbb8lc",
+      "photos": [],
+      "audio": null,
+      "comment": "",
+      "trade": "menuisier",
+      "title": "Coffrage des semelles filantes",
+      "description": "Fabrication et pose du coffrage bois avant coulage du béton.",
+      "montant": 150000,
+      "status": "attente_validation"
+    },
+    {
+      "id": "thfhcfc8",
+      "photos": [],
+      "audio": null,
+      "comment": "",
+      "trade": "macon",
+      "title": "Coulage béton des semelles",
+      "description": "Coulage et vibrage du béton de fondation, contrôle du dosage et du niveau.",
+      "montant": 450000,
+      "status": "en_cours"
+    },
+    {
+      "id": "t261yi3l",
+      "photos": [],
+      "audio": null,
+      "comment": "",
+      "trade": "macon",
+      "title": "Remblai et élévation des fondations",
+      "description": "Montage de l'élévation en agglos jusqu'au niveau du sol fini.",
+      "montant": 320000,
+      "status": "a_faire"
+    },
+    {
+      "id": "tx8bpf6r",
+      "photos": [],
+      "audio": null,
+      "comment": "",
+      "trade": "menuisier",
+      "title": "Coffrage de la longrine",
+      "description": "Coffrage de la poutre de chaînage bas avant coulage.",
+      "montant": 140000,
+      "status": "a_faire"
+    }
+  ],
+  "nextUserId": 4
+}
