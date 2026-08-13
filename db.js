@@ -19,7 +19,8 @@ function saveRaw() {
   fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2), 'utf8');
 }
 
-let data = loadRaw() || { users: [], tasks: [], nextUserId: 1 };
+let data = loadRaw() || { users: [], tasks: [], finance: [], nextUserId: 1 };
+if (!data.finance) data.finance = [];
 if (!data.nextUserId) data.nextUserId = (data.users.reduce((m, u) => Math.max(m, u.id), 0) || 0) + 1;
 
 // ---- Seed uniquement au tout premier démarrage (fichier vide ou absent) ----
@@ -48,9 +49,12 @@ if (data.tasks.length === 0) {
     { trade: 'menuisier', title: 'Coffrage de la longrine', description: 'Coffrage de la poutre de chaînage bas avant coulage.', montant: 140000, status: 'a_faire' },
   ];
   for (const t of seedTasks) {
-    data.tasks.push({ id: uid('t'), photos: [], audio: null, comment: '', ...t });
+    data.tasks.push({ id: uid('t'), photos: [], videos: [], audio: null, comment: '', ...t });
   }
 }
+
+// S'assure que les tâches créées avant l'ajout de la vidéo ont bien le champ
+for (const t of data.tasks) if (!t.videos) t.videos = [];
 
 saveRaw();
 
@@ -75,7 +79,7 @@ module.exports = {
     byTrade(trade) { return data.tasks.filter(t => t.trade === trade); },
     find(id) { return data.tasks.find(t => t.id === id); },
     insert(t) {
-      const task = { id: uid('t'), photos: [], audio: null, comment: '', ...t };
+      const task = { id: uid('t'), photos: [], videos: [], audio: null, comment: '', ...t };
       data.tasks.push(task);
       saveRaw();
       return task;
@@ -86,6 +90,19 @@ module.exports = {
       Object.assign(t, patch);
       saveRaw();
       return t;
+    },
+  },
+  finance: {
+    all() { return data.finance; },
+    insert(rec) {
+      const entry = { id: uid('f'), date: new Date().toISOString().slice(0, 10), taskId: null, ...rec };
+      data.finance.push(entry);
+      saveRaw();
+      return entry;
+    },
+    remove(id) {
+      data.finance = data.finance.filter(f => f.id !== id);
+      saveRaw();
     },
   },
 };
