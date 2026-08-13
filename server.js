@@ -7,13 +7,15 @@ require('./db'); // initialise la base + comptes de démonstration au premier la
 
 const authRoutes = require('./routes/auth');
 const taskRoutes = require('./routes/tasks');
+const financeRoutes = require('./routes/finance');
 
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: '15mb' })); // photos/audio en base64
+app.use(express.json({ limit: '40mb' })); // photos/vidéos courtes/audio en base64
 
 app.use('/api/auth', authRoutes);
 app.use('/api/tasks', taskRoutes);
+app.use('/api/finance', financeRoutes);
 
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('*', (req, res) => {
