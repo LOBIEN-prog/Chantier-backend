@@ -220,3 +220,447 @@ function renderCard(t){
     <div class="card-meta">
       ${t.photos.length?`<span class="proof-badge">${ICONS.photo} ${t.photos.length}</span>`:''}
       ${t.videos&&t.videos.length?`<span class="proof-badge">${ICONS.video} ${t.videos.length}</span>`:''}
+      ${t.audio?`<span class="proof-badge">${ICONS.mic} 1</span>`:''}
+    </div>
+    ${t.comment && t.status==='en_cours' ? `<div class="reject-note">${ICONS.x} ${t.comment}</div>`:''}
+  </div>`;
+}
+function attachOwnerEvents(){
+  const sel=document.getElementById('filterTradeSelect');
+  if(sel) sel.onchange=()=>{ state.filterTrade=sel.value; render(); };
+  document.querySelectorAll('.card').forEach(c=>{ c.onclick=()=>openTaskModal(c.dataset.id); });
+  const fab=document.getElementById('addTaskFab'); if(fab) fab.onclick=openAddTaskModal;
+}
+
+/* ===================== ARTISAN VIEW ===================== */
+function renderArtisan(){
+  const tr=TRADES[state.user.trade];
+  const my=state.tasks;
+  const done=my.filter(t=>t.status==='paye'||t.status==='valide').length;
+  const pct= my.length? Math.round((done/my.length)*100):0;
+  const cols=STATUSES.filter(s=>['a_faire','en_cours','attente_validation'].includes(s.key));
+  const histCols=STATUSES.filter(s=>['valide','paye'].includes(s.key));
+  return `
+  <div class="hero">
+    <div class="hero-top">
+      <div><h2 style="display:flex;align-items:center;gap:8px"><span style="color:${tr.color};display:flex">${tr.icon}</span>${tr.label}</h2><div class="sub">${my.length} tâches assignées</div></div>
+      <div class="gauge-wrap">
+        <div class="gauge-label"><span>Mes tâches terminées</span><span>${pct}%</span></div>
+        <div class="gauge"><div class="gauge-fill" style="width:${pct}%;background:${tr.color}"></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="board artisan">${cols.map(st=>renderArtisanColumn(st,my)).join('')}</div>
+  <div class="hero" style="margin-top:16px">
+    <h2 style="font-size:15px;margin-bottom:10px">Historique validé</h2>
+    <div class="board artisan" style="grid-template-columns:1fr 1fr">${histCols.map(st=>renderArtisanColumn(st,my)).join('')}</div>
+  </div>`;
+}
+function renderArtisanColumn(st,my){
+  const tasks=my.filter(t=>t.status===st.key);
+  return `
+  <div class="col">
+    <div class="col-head"><h4><span class="col-dot" style="background:${st.color}"></span>${st.label}</h4><span class="col-count">${tasks.length}</span></div>
+    <div class="cards">${tasks.length? tasks.map(renderArtisanCard).join(''):`<div class="empty-col">Rien ici</div>`}</div>
+  </div>`;
+}
+function renderArtisanCard(t){
+  const st=stMap[t.status];
+  let action='';
+  if(t.status==='a_faire') action=`<button class="btn btn-blue btn-sm btn-block" data-start="${t.id}">${ICONS.arrowR} Démarrer</button>`;
+  else if(t.status==='en_cours') action=`<button class="btn btn-orange btn-sm btn-block" data-finish="${t.id}">${ICONS.camera} Terminer avec preuve</button>`;
+  else if(t.status==='attente_validation') action=`<div class="small-note">${ICONS.clock} En attente de validation</div>`;
+  else if(t.status==='valide') action=`<div class="small-note">${ICONS.check} Validé — paiement à venir</div>`;
+  else if(t.status==='paye') action=`<div class="small-note">${ICONS.coin} Payé</div>`;
+  return `
+  <div class="card" style="border-left-color:${TRADES[t.trade].color}">
+    <div class="stamp" style="color:${st.color}">${st.label}</div>
+    <h5>${t.title}</h5>
+    <div class="desc-box" style="margin:6px 0">${t.desc}</div>
+    <div class="amt">${fmt(t.montant)}</div>
+    ${t.comment && t.status==='en_cours' ? `<div class="reject-note">${ICONS.x} Rejeté : ${t.comment}</div>`:''}
+    ${action}
+  </div>`;
+}
+function attachArtisanEvents(){
+  document.querySelectorAll('[data-start]').forEach(b=>{
+    b.onclick=async(e)=>{ e.stopPropagation();
+      try{ await api(`/tasks/${b.dataset.start}/start`,{method:'PATCH'}); await refreshTasks(); render(); toast('Tâche démarrée'); }
+      catch(err){ toast(err.message); }
+    };
+  });
+  document.querySelectorAll('[data-finish]').forEach(b=>{
+    b.onclick=(e)=>{ e.stopPropagation(); openProofModal(b.dataset.finish); };
+  });
+}
+
+/* ===================== MODALS ===================== */
+function closeModal(){ document.getElementById('modalRoot').innerHTML=''; stopRecordingIfAny(); state.capture={photos:[],videos:[],audio:null}; }
+function openTaskModal(id){
+  const t=findTask(id); const tr=TRADES[t.trade]; const st=stMap[t.status];
+  let actions='';
+  if(t.status==='attente_validation'){
+    actions=`
+    <div class="action-row">
+      <button class="btn btn-green" id="validateWork">${ICONS.check} Valider le travail</button>
+      <button class="btn btn-red" id="rejectWork">${ICONS.x} Rejeter</button>
+    </div>
+    <div class="field" style="margin-top:10px"><label>Commentaire (si rejet)</label><textarea id="rejectComment" placeholder="Expliquer ce qui doit être repris..."></textarea></div>`;
+  } else if(t.status==='valide'){
+    actions=`<div class="action-row"><button class="btn btn-gold" id="validatePayment">${ICONS.coin} Valider le paiement (${fmt(t.montant)})</button></div>`;
+  } else if(t.status==='paye'){
+    actions=`<div class="small-note">${ICONS.check} Étape validée et payée.</div>`;
+  } else {
+    actions=`<div class="small-note">En attente d'exécution ou de dépôt de preuve par l'artisan.</div>`;
+  }
+  document.getElementById('modalRoot').innerHTML=`
+  <div class="overlay" id="ov">
+    <div class="modal">
+      <div class="modal-head">
+        <div><div class="trade-line"><span style="color:${tr.color};display:flex">${tr.icon}</span>${tr.label} · <span style="color:${st.color}">${st.label}</span></div><h3>${t.title}</h3></div>
+        <button class="x-btn" id="closeM">${ICONS.x}</button>
+      </div>
+      <div class="modal-body">
+        <div class="desc-box">${t.desc}</div>
+        <div class="amount-box"><span>Montant de l'étape</span><b>${fmt(t.montant)}</b></div>
+        <div class="field"><label>${ICONS.photo} Photos de preuve</label>
+          ${t.photos.length? `<div class="proof-gallery">${t.photos.map(p=>`<img src="${p}">`).join('')}</div>` : `<div class="small-note">Aucune photo déposée</div>`}
+        </div>
+        <div class="field"><label>${ICONS.video} Vidéos de preuve</label>
+          ${t.videos&&t.videos.length? `<div class="proof-gallery">${t.videos.map(v=>`<video src="${v}" controls></video>`).join('')}</div>` : `<div class="small-note">Aucune vidéo déposée</div>`}
+        </div>
+        <div class="field"><label>${ICONS.mic} Note vocale</label>
+          ${t.audio? `<div class="audio-row"><audio controls src="${t.audio}"></audio></div>` : `<div class="small-note">Aucune note vocale</div>`}
+        </div>
+        ${actions}
+      </div>
+    </div>
+  </div>`;
+  document.getElementById('closeM').onclick=closeModal;
+  document.getElementById('ov').onclick=(e)=>{ if(e.target.id==='ov') closeModal(); };
+  const vw=document.getElementById('validateWork');
+  if(vw) vw.onclick=async()=>{
+    try{ await api(`/tasks/${t.id}/validate`,{method:'PATCH',body:JSON.stringify({approve:true})}); await refreshTasks(); closeModal(); render(); toast('Travail validé ✓'); }
+    catch(err){ toast(err.message); }
+  };
+  const rj=document.getElementById('rejectWork');
+  if(rj) rj.onclick=async()=>{
+    const c=document.getElementById('rejectComment').value.trim();
+    try{ await api(`/tasks/${t.id}/validate`,{method:'PATCH',body:JSON.stringify({approve:false,comment:c})}); await refreshTasks(); closeModal(); render(); toast("Travail renvoyé à l'artisan"); }
+    catch(err){ toast(err.message); }
+  };
+  const vp=document.getElementById('validatePayment');
+  if(vp) vp.onclick=async()=>{
+    try{ await api(`/tasks/${t.id}/pay`,{method:'PATCH'}); await refreshTasks(); closeModal(); render(); toast('Paiement validé 💰'); }
+    catch(err){ toast(err.message); }
+  };
+}
+
+function openAddTaskModal(){
+  document.getElementById('modalRoot').innerHTML=`
+  <div class="overlay" id="ov">
+    <div class="modal">
+      <div class="modal-head"><div><h3>${ICONS.plus} Nouvelle tâche</h3><div class="trade-line">Ajouter une étape au chantier</div></div><button class="x-btn" id="closeM">${ICONS.x}</button></div>
+      <div class="modal-body">
+        <div class="field"><label>Corps de métier</label><select id="fTrade">${Object.entries(TRADES).map(([k,t])=>`<option value="${k}">${t.label}</option>`).join('')}</select></div>
+        <div class="field"><label>Titre de la tâche</label><input id="fTitle" placeholder="Ex. Pose du carrelage salon"></div>
+        <div class="field"><label>Description</label><textarea id="fDesc" placeholder="Détails de l'étape à réaliser"></textarea></div>
+        <div class="field"><label>Montant (FCFA)</label><input id="fMontant" type="number" placeholder="Ex. 250000"></div>
+        <button class="btn btn-orange btn-block" id="createTask">${ICONS.check} Créer la tâche</button>
+      </div>
+    </div>
+  </div>`;
+  document.getElementById('closeM').onclick=closeModal;
+  document.getElementById('ov').onclick=(e)=>{ if(e.target.id==='ov') closeModal(); };
+  document.getElementById('createTask').onclick=async()=>{
+    const title=document.getElementById('fTitle').value.trim();
+    const desc=document.getElementById('fDesc').value.trim();
+    const montant=parseInt(document.getElementById('fMontant').value)||0;
+    const trade=document.getElementById('fTrade').value;
+    if(!title){ toast('Merci de saisir un titre'); return; }
+    try{ await api('/tasks',{method:'POST',body:JSON.stringify({trade,title,desc,montant})}); await refreshTasks(); closeModal(); render(); toast('Tâche ajoutée'); }
+    catch(err){ toast(err.message); }
+  };
+}
+
+/* ---------- Proof modal (artisan) ---------- */
+function openProofModal(id){
+  const t=findTask(id); const tr=TRADES[t.trade];
+  state.capture={photos:[],videos:[],audio:null};
+  document.getElementById('modalRoot').innerHTML=`
+  <div class="overlay" id="ov">
+    <div class="modal">
+      <div class="modal-head"><div><div class="trade-line"><span style="color:${tr.color};display:flex">${tr.icon}</span>${tr.label}</div><h3>Preuve de travail</h3></div><button class="x-btn" id="closeM">${ICONS.x}</button></div>
+      <div class="modal-body">
+        <div class="desc-box" style="margin-bottom:14px"><b>${t.title}</b><br>${t.desc}</div>
+        <div class="field"><label>${ICONS.camera} Photos courtes</label>
+          <div class="capture-zone">
+            <input type="file" accept="image/*" capture="environment" id="photoInput" style="display:none" multiple>
+            <button class="btn btn-outline btn-sm" id="addPhotoBtn">${ICONS.camera} Prendre / choisir une photo</button>
+            <div id="thumbs" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;justify-content:center"></div>
+          </div>
+        </div>
+        <div class="field"><label>${ICONS.video} Vidéo courte (2 max, restez brefs)</label>
+          <div class="capture-zone">
+            <input type="file" accept="video/*" capture="environment" id="videoInput" style="display:none">
+            <button class="btn btn-outline btn-sm" id="addVideoBtn">${ICONS.video} Filmer / choisir une vidéo</button>
+            <div id="videoThumbs" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;justify-content:center"></div>
+            <div class="small-note">Gardez la vidéo très courte (10-15 secondes) pour un envoi rapide.</div>
+          </div>
+        </div>
+        <div class="field"><label>${ICONS.mic} Note vocale courte (30s max)</label>
+          <div class="capture-zone">
+            <button class="btn btn-outline btn-sm" id="recBtn">${ICONS.mic} Démarrer l'enregistrement</button>
+            <div id="recStatus"></div>
+            <div id="audioPreview"></div>
+          </div>
+        </div>
+        <button class="btn btn-orange btn-block" id="submitProof">${ICONS.check} Envoyer pour validation</button>
+        <div class="small-note">La tâche passera en « Attente de validation » et le propriétaire sera notifié.</div>
+      </div>
+    </div>
+  </div>`;
+  document.getElementById('closeM').onclick=closeModal;
+  document.getElementById('ov').onclick=(e)=>{ if(e.target.id==='ov') closeModal(); };
+  const photoInput=document.getElementById('photoInput');
+  document.getElementById('addPhotoBtn').onclick=()=>photoInput.click();
+  photoInput.onchange=async()=>{
+    for(const file of photoInput.files){ const dataUrl=await compressImage(file); state.capture.photos.push(dataUrl); }
+    renderThumbs(); photoInput.value='';
+  };
+  const videoInput=document.getElementById('videoInput');
+  document.getElementById('addVideoBtn').onclick=()=>{
+    if(state.capture.videos.length>=2){ toast('Maximum 2 vidéos par preuve'); return; }
+    videoInput.click();
+  };
+  videoInput.onchange=async()=>{
+    const file=videoInput.files[0];
+    if(file){
+      if(file.size>25*1024*1024){ toast('Vidéo trop lourde (25 Mo max) — filmez plus court'); videoInput.value=''; return; }
+      const dataUrl=await fileToDataUrl(file);
+      state.capture.videos.push(dataUrl);
+      renderVideoThumbs();
+    }
+    videoInput.value='';
+  };
+  document.getElementById('recBtn').onclick=toggleRecording;
+  document.getElementById('submitProof').onclick=async()=>{
+    if(state.capture.photos.length===0 && state.capture.videos.length===0 && !state.capture.audio){ toast('Ajoutez au moins une photo, une vidéo ou une note vocale'); return; }
+    try{
+      await api(`/tasks/${t.id}/proof`,{method:'PATCH',body:JSON.stringify({photos:state.capture.photos,videos:state.capture.videos,audio:state.capture.audio})});
+      await refreshTasks(); closeModal(); render(); toast('Preuve envoyée, en attente de validation ✓');
+    }catch(err){ toast(err.message); }
+  };
+}
+function renderThumbs(){
+  const wrap=document.getElementById('thumbs'); if(!wrap) return;
+  wrap.innerHTML=state.capture.photos.map((p,i)=>`<span class="mini-thumb"><img src="${p}"><button class="rm" data-i="${i}">×</button></span>`).join('');
+  wrap.querySelectorAll('.rm').forEach(b=>{ b.onclick=()=>{ state.capture.photos.splice(+b.dataset.i,1); renderThumbs(); }; });
+}
+function renderVideoThumbs(){
+  const wrap=document.getElementById('videoThumbs'); if(!wrap) return;
+  wrap.innerHTML=state.capture.videos.map((v,i)=>`<span class="mini-thumb"><video src="${v}" muted></video><button class="rm" data-vi="${i}">×</button></span>`).join('');
+  wrap.querySelectorAll('.rm').forEach(b=>{ b.onclick=()=>{ state.capture.videos.splice(+b.dataset.vi,1); renderVideoThumbs(); }; });
+}
+function fileToDataUrl(file){
+  return new Promise((resolve)=>{
+    const reader=new FileReader();
+    reader.onload=()=>resolve(reader.result);
+    reader.readAsDataURL(file);
+  });
+}
+function compressImage(file){
+  return new Promise((resolve)=>{
+    const reader=new FileReader();
+    reader.onload=(e)=>{
+      const img=new Image();
+      img.onload=()=>{
+        const maxW=900; const scale=Math.min(1,maxW/img.width);
+        const canvas=document.createElement('canvas');
+        canvas.width=img.width*scale; canvas.height=img.height*scale;
+        const ctx=canvas.getContext('2d');
+        ctx.drawImage(img,0,0,canvas.width,canvas.height);
+        resolve(canvas.toDataURL('image/jpeg',0.72));
+      };
+      img.src=e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+/* ---------- Voice recording ---------- */
+async function toggleRecording(){
+  const btn=document.getElementById('recBtn'); const statusEl=document.getElementById('recStatus');
+  if(state.rec.mediaRecorder && state.rec.mediaRecorder.state==='recording'){ state.rec.mediaRecorder.stop(); return; }
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({audio:true});
+    state.rec.stream=stream;
+    const mr=new MediaRecorder(stream);
+    state.rec.mediaRecorder=mr; state.rec.chunks=[]; state.rec.seconds=0;
+    mr.ondataavailable=(e)=>state.rec.chunks.push(e.data);
+    mr.onstop=()=>{
+      clearInterval(state.rec.timer);
+      const blob=new Blob(state.rec.chunks,{type:'audio/webm'});
+      const reader=new FileReader();
+      reader.onload=()=>{
+        state.capture.audio=reader.result;
+        const prev=document.getElementById('audioPreview');
+        if(prev) prev.innerHTML=`<div class="audio-row"><audio controls src="${reader.result}"></audio></div>`;
+        if(statusEl) statusEl.innerHTML='';
+        if(btn) btn.innerHTML=`${ICONS.mic} Réenregistrer`;
+      };
+      reader.readAsDataURL(blob);
+      stream.getTracks().forEach(tr=>tr.stop());
+    };
+    mr.start();
+    btn.innerHTML=`${ICONS.x} Arrêter l'enregistrement`;
+    state.rec.timer=setInterval(()=>{
+      state.rec.seconds++;
+      if(statusEl) statusEl.innerHTML=`<div class="rec-indicator"><span class="rec-dot"></span>Enregistrement… ${state.rec.seconds}s</div>`;
+      if(state.rec.seconds>=30) mr.stop();
+    },1000);
+  }catch(err){ toast("Micro indisponible — autorisez l'accès dans le navigateur"); }
+}
+function stopRecordingIfAny(){
+  if(state.rec.mediaRecorder && state.rec.mediaRecorder.state==='recording') state.rec.mediaRecorder.stop();
+  clearInterval(state.rec.timer);
+}
+
+/* ---------- Owner: gestion des comptes ---------- */
+async function openUsersModal(){
+  let users=[];
+  try{ const r=await api('/auth/users'); users=r.users; }catch(err){ toast(err.message); return; }
+  renderUsersModal(users);
+}
+function renderUsersModal(users){
+  document.getElementById('modalRoot').innerHTML=`
+  <div class="overlay" id="ov">
+    <div class="modal">
+      <div class="modal-head"><div><h3>${ICONS.users} Comptes</h3><div class="trade-line">Propriétaire et artisans ayant accès</div></div><button class="x-btn" id="closeM">${ICONS.x}</button></div>
+      <div class="modal-body">
+        <div id="userList">
+          ${users.map(u=>`
+            <div class="user-row">
+              <div class="who"><b>${u.name}</b><span>${u.email} · ${u.role==='owner'?'Propriétaire':TRADES[u.trade].label}</span></div>
+              ${u.id!==state.user.id ? `<button class="btn btn-red btn-sm" data-del="${u.id}">${ICONS.trash}</button>` : ''}
+            </div>`).join('')}
+        </div>
+        <hr style="border:none;border-top:1px solid var(--line);margin:16px 0">
+        <h3 style="font-family:var(--font-d);font-size:14px;text-transform:uppercase;margin:0 0 10px">Ajouter un accès</h3>
+        <div class="field"><label>Nom</label><input id="nName" placeholder="Ex. Équipe Électricité"></div>
+        <div class="field"><label>Email</label><input id="nEmail" type="email" placeholder="nouveau@chantier.local"></div>
+        <div class="field"><label>Mot de passe</label><input id="nPassword" type="password" placeholder="6 caractères minimum"></div>
+        <div class="field"><label>Rôle</label>
+          <select id="nRole">
+            <option value="artisan">Artisan</option>
+            <option value="owner">Propriétaire</option>
+          </select>
+        </div>
+        <div class="field" id="nTradeField"><label>Corps de métier</label>
+          <select id="nTrade">${Object.entries(TRADES).map(([k,t])=>`<option value="${k}">${t.label}</option>`).join('')}</select>
+        </div>
+        <button class="btn btn-orange btn-block" id="createUser">${ICONS.plus} Créer le compte</button>
+      </div>
+    </div>
+  </div>`;
+  document.getElementById('closeM').onclick=closeModal;
+  document.getElementById('ov').onclick=(e)=>{ if(e.target.id==='ov') closeModal(); };
+  document.querySelectorAll('[data-del]').forEach(b=>{
+    b.onclick=async()=>{
+      try{ await api(`/auth/users/${b.dataset.del}`,{method:'DELETE'}); const r=await api('/auth/users'); renderUsersModal(r.users); toast('Accès supprimé'); }
+      catch(err){ toast(err.message); }
+    };
+  });
+  const roleSel=document.getElementById('nRole'); const tradeField=document.getElementById('nTradeField');
+  const syncTrade=()=>{ tradeField.style.display = roleSel.value==='artisan' ? 'block':'none'; };
+  syncTrade(); roleSel.onchange=syncTrade;
+  document.getElementById('createUser').onclick=async()=>{
+    const name=document.getElementById('nName').value.trim();
+    const email=document.getElementById('nEmail').value.trim();
+    const password=document.getElementById('nPassword').value;
+    const role=roleSel.value;
+    const trade=document.getElementById('nTrade').value;
+    if(!name||!email||!password){ toast('Merci de remplir tous les champs'); return; }
+    try{
+      await api('/auth/users',{method:'POST',body:JSON.stringify({name,email,password,role,trade})});
+      const r=await api('/auth/users'); renderUsersModal(r.users); toast('Compte créé');
+    }catch(err){ toast(err.message); }
+  };
+}
+
+/* ---------- Owner: module financier ---------- */
+const FINANCE_TYPES={
+  financement:{label:'Financement reçu',color:'var(--green)',sign:1},
+  paiement_etape:{label:"Paiement d'étape",color:'var(--gold)',sign:-1},
+  depense:{label:'Dépense',color:'var(--red)',sign:-1},
+  avance:{label:'Avance / prêt',color:'var(--blue)',sign:-1},
+};
+async function openFinanceModal(){
+  let payload;
+  try{ payload=await api('/finance'); }catch(err){ toast(err.message); return; }
+  renderFinanceModal(payload);
+}
+function renderFinanceModal({transactions,summary}){
+  document.getElementById('modalRoot').innerHTML=`
+  <div class="overlay" id="ov">
+    <div class="modal" style="max-width:600px">
+      <div class="modal-head"><div><h3>${ICONS.wallet} Finances</h3><div class="trade-line">Paiements, dépenses et avances du chantier</div></div><button class="x-btn" id="closeM">${ICONS.x}</button></div>
+      <div class="modal-body">
+        <div class="finance-summary">
+          <div class="finance-stat"><span>Budget total (tâches)</span><b>${fmt(summary.budgetTotal)}</b></div>
+          <div class="finance-stat"><span>Financement reçu</span><b style="color:var(--green)">${fmt(summary.financement)}</b></div>
+          <div class="finance-stat"><span>Payé aux artisans</span><b style="color:var(--gold)">${fmt(summary.paiementsEtapes)}</b></div>
+          <div class="finance-stat"><span>Dépenses</span><b style="color:var(--red)">${fmt(summary.depenses)}</b></div>
+          <div class="finance-stat"><span>Avances / prêts</span><b style="color:var(--blue)">${fmt(summary.avances)}</b></div>
+          <div class="finance-stat finance-solde"><span>Solde disponible</span><b>${fmt(summary.solde)}</b></div>
+        </div>
+        <hr style="border:none;border-top:1px solid var(--line);margin:16px 0">
+        <h3 style="font-family:var(--font-d);font-size:14px;text-transform:uppercase;margin:0 0 10px">Historique</h3>
+        <div id="financeList">
+          ${transactions.length? transactions.map(f=>`
+            <div class="finance-row">
+              <div class="who">
+                <b style="color:${FINANCE_TYPES[f.type].color}">${FINANCE_TYPES[f.type].label}</b>
+                <span>${f.description} · ${f.date}</span>
+              </div>
+              <div class="finance-amt">${fmt(f.montant)}</div>
+              ${f.type!=='paiement_etape' ? `<button class="btn btn-red btn-sm" data-delf="${f.id}">${ICONS.trash}</button>` : ''}
+            </div>`).join('') : `<div class="small-note">Aucune transaction pour l'instant</div>`}
+        </div>
+        <hr style="border:none;border-top:1px solid var(--line);margin:16px 0">
+        <h3 style="font-family:var(--font-d);font-size:14px;text-transform:uppercase;margin:0 0 10px">Ajouter une transaction</h3>
+        <div class="field"><label>Type</label>
+          <select id="ftType">
+            <option value="financement">Financement reçu (prêt, apport, avance de fonds)</option>
+            <option value="depense">Dépense (matériaux, location, transport...)</option>
+            <option value="avance">Avance donnée à un artisan</option>
+          </select>
+        </div>
+        <div class="field"><label>Description</label><input id="ftDesc" placeholder="Ex. Achat ciment et fer à béton"></div>
+        <div class="field"><label>Montant (FCFA)</label><input id="ftMontant" type="number" placeholder="Ex. 120000"></div>
+        <button class="btn btn-orange btn-block" id="createFinance">${ICONS.plus} Ajouter</button>
+      </div>
+    </div>
+  </div>`;
+  document.getElementById('closeM').onclick=closeModal;
+  document.getElementById('ov').onclick=(e)=>{ if(e.target.id==='ov') closeModal(); };
+  document.querySelectorAll('[data-delf]').forEach(b=>{
+    b.onclick=async()=>{
+      try{ await api(`/finance/${b.dataset.delf}`,{method:'DELETE'}); openFinanceModal(); toast('Transaction supprimée'); }
+      catch(err){ toast(err.message); }
+    };
+  });
+  document.getElementById('createFinance').onclick=async()=>{
+    const type=document.getElementById('ftType').value;
+    const description=document.getElementById('ftDesc').value.trim();
+    const montant=parseInt(document.getElementById('ftMontant').value)||0;
+    if(!description||montant<=0){ toast('Merci de remplir la description et un montant valide'); return; }
+    try{
+      await api('/finance',{method:'POST',body:JSON.stringify({type,description,montant})});
+      openFinanceModal(); toast('Transaction ajoutée');
+    }catch(err){ toast(err.message); }
+  };
+}
+
+/* ===================== INIT ===================== */
+init();
