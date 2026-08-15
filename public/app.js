@@ -296,6 +296,7 @@ function attachArtisanEvents(){
 
 /* ===================== MODALS ===================== */
 function closeModal(){ document.getElementById('modalRoot').innerHTML=''; stopRecordingIfAny(); state.capture={photos:[],videos:[],audio:null}; }
+
 function openTaskModal(id){
   const t=findTask(id); const tr=TRADES[t.trade]; const st=stMap[t.status];
   let actions='';
