@@ -3,7 +3,7 @@ const path = require('path');
 const express = require('express');
 const cors = require('cors');
 
-require('./db'); // initialise la base + comptes de démonstration au premier lancement
+const db = require('./db'); // initialise MongoDB + comptes de démonstration au premier lancement
 
 const authRoutes = require('./routes/auth');
 const taskRoutes = require('./routes/tasks');
@@ -23,6 +23,15 @@ app.get('*', (req, res) => {
 });
 
 const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => {
-  console.log(`Chantier — serveur démarré sur http://localhost:${PORT}`);
-});
+
+// On attend que MongoDB soit prêt avant d'accepter des requêtes
+db.ready()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`Chantier — serveur démarré sur http://localhost:${PORT}`);
+    });
+  })
+  .catch((err) => {
+    console.error('Impossible de démarrer : connexion base de données échouée.', err);
+    process.exit(1);
+  });
