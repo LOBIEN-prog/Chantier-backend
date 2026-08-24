@@ -1,5 +1,5 @@
 /* ===================== ICONS ===================== */
-const svg=(paths,size=18)=>`<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
+const svg=(paths,size=20)=>`<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
 const ICONS={
   helmet:svg('<path d="M4 18v-2a8 8 0 0 1 16 0v2"/><path d="M2 18h20v2H2z"/><path d="M12 6V3"/>'),
   wrench:svg('<path d="M14.7 6.3a4 4 0 0 0-5.6 5.6L3 18l3 3 6.1-6.1a4 4 0 0 0 5.6-5.6l-2.5 2.5-2-2 2.5-2.5z"/>'),
@@ -22,7 +22,10 @@ const ICONS={
   trash:svg('<path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>'),
   video:svg('<rect x="2" y="6" width="14" height="12" rx="2"/><path d="m22 8-6 4 6 4z"/>'),
   wallet:svg('<path d="M20 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2z"/><path d="M4 7V5a2 2 0 0 1 2-2h9l3 4"/><circle cx="16" cy="14" r="1.5"/>'),
-  filter:svg('<path d="M3 5h18"/><path d="M6 12h12"/><path d="M10 19h4"/>'),
+  grid:svg('<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/>'),
+  user:svg('<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/>'),
+  menu:svg('<path d="M3 6h18"/><path d="M3 12h18"/><path d="M3 18h18"/>'),
+  search:svg('<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>'),
 };
 
 /* ===================== TRADES / STATUSES ===================== */
@@ -34,24 +37,47 @@ const TRADES={
   menuisier:{label:'Menuisier',icon:ICONS.saw,color:'var(--menuisier)'},
 };
 const STATUSES=[
-  {key:'a_faire',label:'À faire',color:'var(--gray)'},
-  {key:'en_cours',label:'En cours',color:'var(--blue)'},
-  {key:'attente_validation',label:'Attente validation',color:'var(--orange)'},
-  {key:'valide',label:'Validé',color:'var(--green)'},
-  {key:'paye',label:'Payé',color:'var(--gold)'},
+  {key:'a_faire',label:'À faire',color:'var(--st-a-faire)'},
+  {key:'en_cours',label:'En cours',color:'var(--st-en-cours)'},
+  {key:'attente_validation',label:'Attente validation',color:'var(--st-attente)'},
+  {key:'valide',label:'Validé',color:'var(--st-valide)'},
+  {key:'paye',label:'Payé',color:'var(--st-paye)'},
 ];
 const stMap=Object.fromEntries(STATUSES.map(s=>[s.key,s]));
+
+const OWNER_TABS=[
+  {key:'chantiers',label:'Chantiers',icon:ICONS.grid},
+  {key:'medias',label:'Médias',icon:ICONS.photo},
+  {key:'finance',label:'Finance',icon:ICONS.wallet},
+  {key:'intervenants',label:'Intervenants',icon:ICONS.users},
+  {key:'compte',label:'Compte',icon:ICONS.user},
+];
+const ARTISAN_TABS=[
+  {key:'taches',label:'Mes tâches',icon:ICONS.grid},
+  {key:'medias',label:'Médias',icon:ICONS.photo},
+  {key:'compte',label:'Compte',icon:ICONS.user},
+];
+const SUBFILTERS=[
+  {key:'tous',label:'Tous'},
+  {key:'en_cours',label:'En cours'},
+  {key:'attente_validation',label:'En attente'},
+  {key:'valide',label:'Validé'},
+];
 
 /* ===================== STATE ===================== */
 const state={
   token: sessionStorage.getItem('chantier_token') || null,
   user: null,
   tasks: [],
-  filterTrade: 'all',
+  activeTab: null,
+  subFilter: 'tous',
+  tradeFilter: 'all',
+  searchOpen: false,
+  searchQuery: '',
+  drawerOpen: false,
   loginError: '',
   capture: { photos: [], videos: [], audio: null },
   rec: { mediaRecorder: null, chunks: [], stream: null, timer: null, seconds: 0 },
-  usersModal: { users: [] },
 };
 
 function fmt(n){ return (n||0).toLocaleString('fr-FR')+' FCFA'; }
@@ -66,14 +92,13 @@ async function api(path, opts={}){
   if(state.token) headers['Authorization'] = 'Bearer '+state.token;
   const res = await fetch('/api'+path, { ...opts, headers });
   let body=null;
-  try{ body = await res.json(); }catch(e){ /* pas de contenu JSON */ }
+  try{ body = await res.json(); }catch(e){}
   if(res.status===401){ logout(true); throw new Error((body&&body.error)||'Session expirée'); }
   if(!res.ok){ throw new Error((body&&body.error)||'Erreur serveur'); }
   return body;
 }
-
 function logout(silent){
-  state.token=null; state.user=null; state.tasks=[]; state.filterTrade='all';
+  state.token=null; state.user=null; state.tasks=[]; state.activeTab=null;
   sessionStorage.removeItem('chantier_token');
   if(!silent) toast('Déconnecté');
   render();
@@ -85,6 +110,7 @@ async function init(){
     try{
       const {user}=await api('/auth/me');
       state.user=user;
+      state.activeTab = user.role==='owner' ? 'chantiers' : 'taches';
       await refreshTasks();
     }catch(e){ state.token=null; sessionStorage.removeItem('chantier_token'); }
   }
@@ -95,14 +121,22 @@ async function refreshTasks(){
   state.tasks=tasks;
 }
 function findTask(id){ return state.tasks.find(t=>t.id===id); }
+function currentTabs(){ return state.user.role==='owner' ? OWNER_TABS : ARTISAN_TABS; }
 
 /* ===================== RENDER ROOT ===================== */
 function render(){
   const app=document.getElementById('app');
   if(!state.user){ app.innerHTML=renderGate(); attachGateEvents(); return; }
-  app.innerHTML = topbar() + (state.user.role==='owner' ? renderOwner() : renderArtisan());
-  attachCommonEvents();
-  if(state.user.role==='owner') attachOwnerEvents(); else attachArtisanEvents();
+  app.innerHTML = `
+    ${renderTopbar()}
+    <div class="page-content">${renderPage()}</div>
+    ${renderBottomNav()}
+    ${state.drawerOpen ? renderDrawer() : ''}
+  `;
+  attachTopbarEvents();
+  attachBottomNavEvents();
+  if(state.drawerOpen) attachDrawerEvents();
+  attachPageEvents();
 }
 
 /* ===================== GATE (LOGIN) ===================== */
@@ -112,14 +146,13 @@ function renderGate(){
     <div class="gate-mark">${ICONS.helmet}</div>
     <h1>Mon Chantier</h1>
     <p>Connectez-vous pour suivre l'avancement, déposer des preuves de travail ou valider les paiements par étape.</p>
-    <div class="gate-card" style="width:100%;max-width:360px">
+    <div class="gate-card">
       ${state.loginError ? `<div class="error-box">${state.loginError}</div>` : ''}
       <form id="loginForm">
         <div class="field"><label>Email</label><input type="email" id="loginEmail" required placeholder="vous@exemple.com"></div>
         <div class="field"><label>Mot de passe</label><input type="password" id="loginPassword" required placeholder="••••••••"></div>
-        <button type="submit" class="btn btn-orange btn-block">${ICONS.check} Se connecter</button>
+        <button type="submit" class="btn btn-primary btn-block">${ICONS.check} Se connecter</button>
       </form>
-      <div class="small-note">Comptes de démonstration (voir la console du serveur au premier démarrage) : propriétaire, maçon, menuisier.</div>
     </div>
   </div>`;
 }
@@ -131,188 +164,422 @@ function attachGateEvents(){
     try{
       const {token,user}=await api('/auth/login',{method:'POST',body:JSON.stringify({email,password})});
       state.token=token; state.user=user; state.loginError='';
+      state.activeTab = user.role==='owner' ? 'chantiers' : 'taches';
       sessionStorage.setItem('chantier_token', token);
       await refreshTasks();
       render();
-    }catch(err){
-      state.loginError=err.message; render();
-    }
+    }catch(err){ state.loginError=err.message; render(); }
   };
 }
 
 /* ===================== TOPBAR ===================== */
-function topbar(){
+function pageTitle(){
+  const titles={chantiers:'Chantiers',taches:'Mes tâches',medias:'Médias',finance:'Finance',intervenants:'Intervenants',compte:'Compte'};
+  return titles[state.activeTab] || 'Mon Chantier';
+}
+function renderTopbar(){
   const u=state.user;
-  const dot = u.role==='owner' ? 'var(--orange)' : TRADES[u.trade].color;
-  const label = u.role==='owner' ? 'Propriétaire' : TRADES[u.trade].label;
   return `
   <div class="topbar">
-    <div class="brand">
-      <div class="brand-mark">${ICONS.helmet}</div>
-      <div class="brand-text"><h1>Mon Chantier</h1><span>Connecté en tant que ${u.name}</span></div>
+    <button class="icon-btn" id="burgerBtn">${ICONS.menu}</button>
+    <div class="topbar-info">
+      <div class="site-name">Mon Chantier</div>
+      <div class="user-line">${u.role==='owner'?'Propriétaire':TRADES[u.trade].label} · ${u.name}</div>
     </div>
-    <div class="topbar-right">
-      <div class="role-tag"><span class="role-dot" style="background:${dot}"></span>${label}</div>
-      ${u.role==='owner' ? `<button class="btn-ghost" id="openFinance">${ICONS.wallet} Finances</button>` : ''}
-      ${u.role==='owner' ? `<button class="btn-ghost" id="openUsers">${ICONS.users} Comptes</button>` : ''}
-      <button class="btn-ghost" id="logoutBtn">${ICONS.logout} Déconnexion</button>
+    <div class="topbar-actions">
+      <button class="icon-btn gold" id="searchBtn">${ICONS.search}</button>
+      ${quickAddVisible() ? `<button class="icon-btn gold" id="quickAddBtn">${ICONS.plus}</button>` : ''}
     </div>
-  </div>`;
+  </div>
+  ${state.searchOpen ? `
+  <div class="search-row">
+    <input type="text" id="searchInput" placeholder="Rechercher..." value="${state.searchQuery}">
+  </div>` : ''}
+  `;
 }
-function attachCommonEvents(){
-  document.getElementById('logoutBtn').onclick=()=>logout();
-  const ub=document.getElementById('openUsers');
-  if(ub) ub.onclick=openUsersModal;
-  const fb=document.getElementById('openFinance');
-  if(fb) fb.onclick=openFinanceModal;
+function quickAddVisible(){
+  if(state.user.role!=='owner') return false;
+  return ['chantiers','finance','intervenants'].includes(state.activeTab);
+}
+function attachTopbarEvents(){
+  document.getElementById('burgerBtn').onclick=()=>{ state.drawerOpen=true; render(); };
+  document.getElementById('searchBtn').onclick=()=>{ state.searchOpen=!state.searchOpen; if(!state.searchOpen) state.searchQuery=''; render(); };
+  const si=document.getElementById('searchInput');
+  if(si){ si.focus(); si.setSelectionRange(si.value.length,si.value.length);
+    si.oninput=()=>{ state.searchQuery=si.value; renderPageOnly(); };
+  }
+  const qa=document.getElementById('quickAddBtn');
+  if(qa) qa.onclick=()=>{
+    if(state.activeTab==='chantiers') openAddTaskModal();
+    else if(state.activeTab==='finance') openAddFinanceModal();
+    else if(state.activeTab==='intervenants') openAddUserModal();
+  };
+}
+function renderPageOnly(){
+  document.querySelector('.page-content').innerHTML=renderPage();
+  attachPageEvents();
 }
 
-/* ===================== OWNER VIEW ===================== */
-function computeStats(){
-  const tasks=state.tasks;
-  const total=tasks.length;
-  const byStatus=Object.fromEntries(STATUSES.map(s=>[s.key, tasks.filter(t=>t.status===s.key).length]));
-  const pct = total? Math.round(((byStatus.valide+byStatus.paye)/total)*100):0;
-  return {total, byStatus, pct};
-}
-function renderOwner(){
-  const s=computeStats();
+/* ===================== DRAWER (menu burger) ===================== */
+function renderDrawer(){
+  const u=state.user;
+  const tabs=currentTabs();
   return `
-  <div class="hero">
-    <div class="hero-top">
-      <div><h2>Avancement global</h2><div class="sub">${s.total} tâches</div></div>
-      <div class="gauge-wrap">
-        <div class="gauge-label"><span>Progression</span><span>${s.pct}%</span></div>
-        <div class="gauge"><div class="gauge-fill" style="width:${s.pct}%"></div></div>
+  <div class="drawer-overlay" id="drawerOverlay">
+    <div class="drawer">
+      <div class="drawer-head">
+        <div class="drawer-avatar">${u.name.charAt(0).toUpperCase()}</div>
+        <div>
+          <b>${u.name}</b>
+          <span>${u.email}</span>
+          <span class="drawer-role">${u.role==='owner'?'Propriétaire':TRADES[u.trade].label}</span>
+        </div>
       </div>
+      <div class="drawer-nav">
+        ${tabs.map(t=>`<button class="drawer-link ${state.activeTab===t.key?'active':''}" data-tab="${t.key}">${t.icon}<span>${t.label}</span></button>`).join('')}
+      </div>
+      <button class="btn btn-outline-gold btn-block" id="drawerLogout">${ICONS.logout} Déconnexion</button>
     </div>
-    <div class="stat-row">
-      ${STATUSES.map(st=>`<div class="stat-chip" style="border-left:4px solid ${st.color}"><b>${s.byStatus[st.key]}</b><span>${st.label}</span></div>`).join('')}
-    </div>
-  </div>
-  <div class="filter-select-row">
-    <span class="filter-select-icon">${ICONS.filter}</span>
-    <select id="filterTradeSelect" class="filter-select">
-      <option value="all" ${state.filterTrade==='all'?'selected':''}>Tous les corps de métier</option>
-      ${Object.entries(TRADES).map(([k,t])=>`<option value="${k}" ${state.filterTrade===k?'selected':''}>${t.label}</option>`).join('')}
-    </select>
-  </div>
-  <div class="board">${STATUSES.map(st=>renderColumn(st)).join('')}</div>
-  <button class="fab" id="addTaskFab" title="Ajouter une tâche">${ICONS.plus}</button>`;
-}
-function renderColumn(st){
-  let tasks=state.tasks.filter(t=>t.status===st.key);
-  if(state.filterTrade!=='all') tasks=tasks.filter(t=>t.trade===state.filterTrade);
-  return `
-  <div class="col">
-    <div class="col-head"><h4><span class="col-dot" style="background:${st.color}"></span>${st.label}</h4><span class="col-count">${tasks.length}</span></div>
-    <div class="cards">${tasks.length? tasks.map(renderCard).join('') : `<div class="empty-col">Aucune tâche</div>`}</div>
   </div>`;
 }
-function renderCard(t){
-  const tr=TRADES[t.trade]; const st=stMap[t.status];
-  return `
-  <div class="card" style="border-left-color:${tr.color}" data-id="${t.id}">
-    <div class="stamp" style="color:${st.color}">${st.label}</div>
-    <div class="card-trade"><span style="color:${tr.color};display:flex">${tr.icon}</span>${tr.label}</div>
-    <h5>${t.title}</h5>
-    <div class="amt">${fmt(t.montant)}</div>
-    <div class="card-meta">
-      ${t.photos.length?`<span class="proof-badge">${ICONS.photo} ${t.photos.length}</span>`:''}
-      ${t.videos&&t.videos.length?`<span class="proof-badge">${ICONS.video} ${t.videos.length}</span>`:''}
-      ${t.audio?`<span class="proof-badge">${ICONS.mic} 1</span>`:''}
-    </div>
-    ${t.comment && t.status==='en_cours' ? `<div class="reject-note">${ICONS.x} ${t.comment}</div>`:''}
-  </div>`;
-}
-function attachOwnerEvents(){
-  const sel=document.getElementById('filterTradeSelect');
-  if(sel) sel.onchange=()=>{ state.filterTrade=sel.value; render(); };
-  document.querySelectorAll('.card').forEach(c=>{ c.onclick=()=>openTaskModal(c.dataset.id); });
-  const fab=document.getElementById('addTaskFab'); if(fab) fab.onclick=openAddTaskModal;
+function attachDrawerEvents(){
+  document.getElementById('drawerOverlay').onclick=(e)=>{ if(e.target.id==='drawerOverlay'){ state.drawerOpen=false; render(); } };
+  document.querySelectorAll('.drawer-link').forEach(b=>{
+    b.onclick=()=>{ state.activeTab=b.dataset.tab; state.subFilter='tous'; state.drawerOpen=false; render(); };
+  });
+  document.getElementById('drawerLogout').onclick=()=>{ state.drawerOpen=false; logout(); };
 }
 
-/* ===================== ARTISAN VIEW ===================== */
-function renderArtisan(){
-  const tr=TRADES[state.user.trade];
-  const my=state.tasks;
-  const done=my.filter(t=>t.status==='paye'||t.status==='valide').length;
-  const pct= my.length? Math.round((done/my.length)*100):0;
-  const cols=STATUSES.filter(s=>['a_faire','en_cours','attente_validation'].includes(s.key));
-  const histCols=STATUSES.filter(s=>['valide','paye'].includes(s.key));
+/* ===================== BOTTOM NAV ===================== */
+function renderBottomNav(){
+  const tabs=currentTabs();
   return `
-  <div class="hero">
-    <div class="hero-top">
-      <div><h2 style="display:flex;align-items:center;gap:8px"><span style="color:${tr.color};display:flex">${tr.icon}</span>${tr.label}</h2><div class="sub">${my.length} tâches assignées</div></div>
-      <div class="gauge-wrap">
-        <div class="gauge-label"><span>Mes tâches terminées</span><span>${pct}%</span></div>
-        <div class="gauge"><div class="gauge-fill" style="width:${pct}%;background:${tr.color}"></div></div>
-      </div>
-    </div>
-  </div>
-  <div class="board artisan">${cols.map(st=>renderArtisanColumn(st,my)).join('')}</div>
-  <div class="hero" style="margin-top:16px">
-    <h2 style="font-size:15px;margin-bottom:10px">Historique validé</h2>
-    <div class="board artisan" style="grid-template-columns:1fr 1fr">${histCols.map(st=>renderArtisanColumn(st,my)).join('')}</div>
-  </div>`;
+  <nav class="bottom-nav">
+    ${tabs.map(t=>`
+      <button class="bn-item ${state.activeTab===t.key?'active':''}" data-tab="${t.key}">
+        ${t.icon}<span>${t.label}</span>
+      </button>`).join('')}
+  </nav>`;
 }
-function renderArtisanColumn(st,my){
-  const tasks=my.filter(t=>t.status===st.key);
-  return `
-  <div class="col">
-    <div class="col-head"><h4><span class="col-dot" style="background:${st.color}"></span>${st.label}</h4><span class="col-count">${tasks.length}</span></div>
-    <div class="cards">${tasks.length? tasks.map(renderArtisanCard).join(''):`<div class="empty-col">Rien ici</div>`}</div>
-  </div>`;
+function attachBottomNavEvents(){
+  document.querySelectorAll('.bn-item').forEach(b=>{
+    b.onclick=()=>{ state.activeTab=b.dataset.tab; state.subFilter='tous'; state.searchOpen=false; state.searchQuery=''; render(); };
+  });
 }
-function renderArtisanCard(t){
-  const st=stMap[t.status];
-  let action='';
-  if(t.status==='a_faire') action=`<button class="btn btn-blue btn-sm btn-block" data-start="${t.id}">${ICONS.arrowR} Démarrer</button>`;
-  else if(t.status==='en_cours') action=`<button class="btn btn-orange btn-sm btn-block" data-finish="${t.id}">${ICONS.camera} Terminer avec preuve</button>`;
-  else if(t.status==='attente_validation') action=`<div class="small-note">${ICONS.clock} En attente de validation</div>`;
-  else if(t.status==='valide') action=`<div class="small-note">${ICONS.check} Validé — paiement à venir</div>`;
-  else if(t.status==='paye') action=`<div class="small-note">${ICONS.coin} Payé</div>`;
-  return `
-  <div class="card" style="border-left-color:${TRADES[t.trade].color}">
-    <div class="stamp" style="color:${st.color}">${st.label}</div>
-    <h5>${t.title}</h5>
-    <div class="desc-box" style="margin:6px 0">${t.desc}</div>
-    <div class="amt">${fmt(t.montant)}</div>
-    ${t.comment && t.status==='en_cours' ? `<div class="reject-note">${ICONS.x} Rejeté : ${t.comment}</div>`:''}
-    ${action}
-  </div>`;
+
+/* ===================== PAGE ROUTER ===================== */
+function renderPage(){
+  if(state.user.role==='owner'){
+    if(state.activeTab==='chantiers') return renderChantiersPage();
+    if(state.activeTab==='medias') return renderMediasPage();
+    if(state.activeTab==='finance') return renderFinancePage();
+    if(state.activeTab==='intervenants') return renderIntervenantsPage();
+    if(state.activeTab==='compte') return renderComptePage();
+  } else {
+    if(state.activeTab==='taches') return renderChantiersPage();
+    if(state.activeTab==='medias') return renderMediasPage();
+    if(state.activeTab==='compte') return renderComptePage();
+  }
+  return '';
 }
-function attachArtisanEvents(){
+function attachPageEvents(){
+  const sf=document.querySelectorAll('.subfilter-chip');
+  sf.forEach(c=>{ c.onclick=()=>{ state.subFilter=c.dataset.f; renderPageOnly(); }; });
+  const tf=document.getElementById('tradeFilterSelect');
+  if(tf) tf.onchange=()=>{ state.tradeFilter=tf.value; renderPageOnly(); };
+
+  document.querySelectorAll('.task-row').forEach(c=>{ c.onclick=()=>openTaskModal(c.dataset.id); });
   document.querySelectorAll('[data-start]').forEach(b=>{
     b.onclick=async(e)=>{ e.stopPropagation();
-      try{ await api(`/tasks/${b.dataset.start}/start`,{method:'PATCH'}); await refreshTasks(); render(); toast('Tâche démarrée'); }
+      try{ await api(`/tasks/${b.dataset.start}/start`,{method:'PATCH'}); await refreshTasks(); renderPageOnly(); toast('Tâche démarrée'); }
       catch(err){ toast(err.message); }
     };
   });
   document.querySelectorAll('[data-finish]').forEach(b=>{
     b.onclick=(e)=>{ e.stopPropagation(); openProofModal(b.dataset.finish); };
   });
+  document.querySelectorAll('.media-thumb').forEach(m=>{
+    m.onclick=()=>openMediaLightbox(m.dataset.src, m.dataset.type);
+  });
+  document.querySelectorAll('[data-del]').forEach(b=>{
+    b.onclick=async()=>{
+      try{ await api(`/auth/users/${b.dataset.del}`,{method:'DELETE'}); const r=await api('/auth/users'); state.usersCache=r.users; renderPageOnly(); toast('Accès supprimé'); }
+      catch(err){ toast(err.message); }
+    };
+  });
+  document.querySelectorAll('[data-delf]').forEach(b=>{
+    b.onclick=async()=>{
+      try{ const r=await api(`/finance/${b.dataset.delf}`,{method:'DELETE'}); state.financeCache=r; toast('Transaction supprimée'); await loadFinance(); renderPageOnly(); }
+      catch(err){ toast(err.message); }
+    };
+  });
+  const addUserForm=document.getElementById('createUser');
+  if(addUserForm) attachIntervenantsFormEvents();
+  const addFinanceForm=document.getElementById('createFinance');
+  if(addFinanceForm) attachFinanceFormEvents();
+  const logoutBtn=document.getElementById('compteLogout');
+  if(logoutBtn) logoutBtn.onclick=()=>logout();
 }
 
-/* ===================== MODALS ===================== */
-function closeModal(){ document.getElementById('modalRoot').innerHTML=''; stopRecordingIfAny(); state.capture={photos:[],videos:[],audio:null}; }
+/* ===================== CHANTIERS / MES TÂCHES ===================== */
+function filteredTasks(){
+  let list = state.user.role==='owner' ? state.tasks : state.tasks;
+  if(state.tradeFilter!=='all') list=list.filter(t=>t.trade===state.tradeFilter);
+  if(state.subFilter==='en_cours') list=list.filter(t=>t.status==='en_cours');
+  else if(state.subFilter==='attente_validation') list=list.filter(t=>t.status==='attente_validation');
+  else if(state.subFilter==='valide') list=list.filter(t=>t.status==='valide'||t.status==='paye');
+  if(state.searchQuery.trim()){
+    const q=state.searchQuery.toLowerCase();
+    list=list.filter(t=>t.title.toLowerCase().includes(q) || TRADES[t.trade].label.toLowerCase().includes(q));
+  }
+  return list;
+}
+function renderChantiersPage(){
+  const isOwner = state.user.role==='owner';
+  const list=filteredTasks();
+  const total=state.tasks.length;
+  const done=state.tasks.filter(t=>t.status==='valide'||t.status==='paye').length;
+  const pct= total? Math.round((done/total)*100):0;
+  return `
+  <div class="page-head">
+    <h2>${isOwner?'Chantiers':'Mes tâches'}</h2>
+    <div class="gauge-wrap">
+      <div class="gauge-label"><span>Progression</span><span>${pct}%</span></div>
+      <div class="gauge"><div class="gauge-fill" style="width:${pct}%"></div></div>
+    </div>
+  </div>
+  <div class="subfilter-row">
+    ${SUBFILTERS.map(f=>`<button class="subfilter-chip ${state.subFilter===f.key?'active':''}" data-f="${f.key}">${f.label}</button>`).join('')}
+  </div>
+  ${isOwner ? `
+  <div class="filter-select-row">
+    <select id="tradeFilterSelect" class="filter-select">
+      <option value="all" ${state.tradeFilter==='all'?'selected':''}>Tous les corps de métier</option>
+      ${Object.entries(TRADES).map(([k,t])=>`<option value="${k}" ${state.tradeFilter===k?'selected':''}>${t.label}</option>`).join('')}
+    </select>
+  </div>` : ''}
+  <div class="task-list">
+    ${list.length? list.map(t=>renderTaskRow(t,isOwner)).join('') : `<div class="empty-state">Aucune tâche ici</div>`}
+  </div>`;
+}
+function renderTaskRow(t,isOwner){
+  const tr=TRADES[t.trade]; const st=stMap[t.status];
+  let action='';
+  if(!isOwner){
+    if(t.status==='a_faire') action=`<button class="btn btn-primary btn-sm" data-start="${t.id}">${ICONS.arrowR} Démarrer</button>`;
+    else if(t.status==='en_cours') action=`<button class="btn btn-gold btn-sm" data-finish="${t.id}">${ICONS.camera} Preuve</button>`;
+  }
+  return `
+  <div class="task-row" data-id="${t.id}" style="border-left-color:${tr.color}">
+    <div class="task-row-main">
+      <div class="task-row-top">
+        <span class="task-trade" style="color:${tr.color}">${tr.icon} ${tr.label}</span>
+        <span class="status-badge" style="background:${st.color}">${st.label}</span>
+      </div>
+      <h5>${t.title}</h5>
+      <div class="task-row-bottom">
+        <span class="amt">${fmt(t.montant)}</span>
+        <span class="proof-icons">
+          ${t.photos.length?`<span class="proof-badge">${ICONS.photo}${t.photos.length}</span>`:''}
+          ${t.videos&&t.videos.length?`<span class="proof-badge">${ICONS.video}${t.videos.length}</span>`:''}
+          ${t.audio?`<span class="proof-badge">${ICONS.mic}1</span>`:''}
+        </span>
+      </div>
+      ${t.comment && t.status==='en_cours' ? `<div class="reject-note">${ICONS.x} ${t.comment}</div>`:''}
+    </div>
+    ${action ? `<div class="task-row-action">${action}</div>` : ''}
+  </div>`;
+}
 
+/* ===================== MÉDIAS ===================== */
+function renderMediasPage(){
+  const isOwner=state.user.role==='owner';
+  let items=[];
+  state.tasks.forEach(t=>{
+    (t.photos||[]).forEach(p=>items.push({src:p,type:'image',task:t}));
+    (t.videos||[]).forEach(v=>items.push({src:v,type:'video',task:t}));
+  });
+  if(state.tradeFilter!=='all') items=items.filter(i=>i.task.trade===state.tradeFilter);
+  if(state.searchQuery.trim()){
+    const q=state.searchQuery.toLowerCase();
+    items=items.filter(i=>i.task.title.toLowerCase().includes(q));
+  }
+  return `
+  <div class="page-head"><h2>Médias</h2><div class="sub">${items.length} fichier(s)</div></div>
+  ${isOwner ? `
+  <div class="filter-select-row">
+    <select id="tradeFilterSelect" class="filter-select">
+      <option value="all" ${state.tradeFilter==='all'?'selected':''}>Tous les corps de métier</option>
+      ${Object.entries(TRADES).map(([k,t])=>`<option value="${k}" ${state.tradeFilter===k?'selected':''}>${t.label}</option>`).join('')}
+    </select>
+  </div>` : ''}
+  <div class="media-grid">
+    ${items.length? items.map(i=>`
+      <div class="media-thumb" data-src="${i.src}" data-type="${i.type}">
+        ${i.type==='image'? `<img src="${i.src}">` : `<video src="${i.src}" muted></video><span class="media-play">${ICONS.video}</span>`}
+        <div class="media-caption">${i.task.title}</div>
+      </div>`).join('') : `<div class="empty-state">Aucun média déposé pour l'instant</div>`}
+  </div>`;
+}
+function openMediaLightbox(src,type){
+  document.getElementById('modalRoot').innerHTML=`
+  <div class="overlay" id="ov">
+    <div class="modal lightbox-modal">
+      <button class="x-btn lightbox-close" id="closeM">${ICONS.x}</button>
+      ${type==='image' ? `<img src="${src}" class="lightbox-media">` : `<video src="${src}" controls autoplay class="lightbox-media"></video>`}
+    </div>
+  </div>`;
+  document.getElementById('closeM').onclick=closeModal;
+  document.getElementById('ov').onclick=(e)=>{ if(e.target.id==='ov') closeModal(); };
+}
+
+/* ===================== FINANCE (page) ===================== */
+const FINANCE_TYPES={
+  financement:{label:'Financement reçu',color:'var(--forest)'},
+  paiement_etape:{label:"Paiement d'étape",color:'var(--gold-dark)'},
+  depense:{label:'Dépense',color:'var(--danger)'},
+  avance:{label:'Avance / prêt',color:'var(--info)'},
+};
+async function loadFinance(){
+  try{ state.financeCache=await api('/finance'); }catch(err){ toast(err.message); }
+}
+function renderFinancePage(){
+  if(!state.financeCache){ loadFinance().then(renderPageOnly); return `<div class="empty-state">Chargement…</div>`; }
+  const {transactions,summary}=state.financeCache;
+  return `
+  <div class="page-head"><h2>Finance</h2><div class="sub">Paiements, dépenses et avances</div></div>
+  <div class="finance-summary">
+    <div class="finance-stat"><span>Budget total</span><b>${fmt(summary.budgetTotal)}</b></div>
+    <div class="finance-stat"><span>Financement reçu</span><b style="color:var(--forest)">${fmt(summary.financement)}</b></div>
+    <div class="finance-stat"><span>Payé aux artisans</span><b style="color:var(--gold-dark)">${fmt(summary.paiementsEtapes)}</b></div>
+    <div class="finance-stat"><span>Dépenses</span><b style="color:var(--danger)">${fmt(summary.depenses)}</b></div>
+    <div class="finance-stat"><span>Avances / prêts</span><b style="color:var(--info)">${fmt(summary.avances)}</b></div>
+    <div class="finance-stat finance-solde"><span>Solde disponible</span><b>${fmt(summary.solde)}</b></div>
+  </div>
+  <h3 class="section-title">Historique</h3>
+  <div class="finance-list">
+    ${transactions.length? transactions.map(f=>`
+      <div class="finance-row">
+        <div class="who"><b style="color:${FINANCE_TYPES[f.type].color}">${FINANCE_TYPES[f.type].label}</b><span>${f.description} · ${f.date}</span></div>
+        <div class="finance-amt">${fmt(f.montant)}</div>
+        ${f.type!=='paiement_etape' ? `<button class="btn btn-outline-gold btn-sm" data-delf="${f.id}">${ICONS.trash}</button>` : ''}
+      </div>`).join('') : `<div class="empty-state">Aucune transaction pour l'instant</div>`}
+  </div>
+  <h3 class="section-title">Ajouter une transaction</h3>
+  <div class="inline-form">
+    <div class="field"><label>Type</label>
+      <select id="ftType">
+        <option value="financement">Financement reçu</option>
+        <option value="depense">Dépense</option>
+        <option value="avance">Avance donnée à un artisan</option>
+      </select>
+    </div>
+    <div class="field"><label>Description</label><input id="ftDesc" placeholder="Ex. Achat ciment et fer à béton"></div>
+    <div class="field"><label>Montant (FCFA)</label><input id="ftMontant" type="number" placeholder="Ex. 120000"></div>
+    <button class="btn btn-gold btn-block" id="createFinance">${ICONS.plus} Ajouter</button>
+  </div>`;
+}
+function attachFinanceFormEvents(){
+  document.getElementById('createFinance').onclick=async()=>{
+    const type=document.getElementById('ftType').value;
+    const description=document.getElementById('ftDesc').value.trim();
+    const montant=parseInt(document.getElementById('ftMontant').value)||0;
+    if(!description||montant<=0){ toast('Merci de remplir la description et un montant valide'); return; }
+    try{ await api('/finance',{method:'POST',body:JSON.stringify({type,description,montant})}); await loadFinance(); renderPageOnly(); toast('Transaction ajoutée'); }
+    catch(err){ toast(err.message); }
+  };
+}
+function openAddFinanceModal(){
+  document.querySelector('.page-content')?.scrollIntoView();
+  const el=document.getElementById('ftDesc');
+  if(el) el.focus();
+}
+
+/* ===================== INTERVENANTS (page) ===================== */
+async function loadUsers(){
+  try{ const r=await api('/auth/users'); state.usersCache=r.users; }catch(err){ toast(err.message); }
+}
+function renderIntervenantsPage(){
+  if(!state.usersCache){ loadUsers().then(renderPageOnly); return `<div class="empty-state">Chargement…</div>`; }
+  const users=state.usersCache;
+  return `
+  <div class="page-head"><h2>Intervenants</h2><div class="sub">${users.length} compte(s)</div></div>
+  <div class="user-list">
+    ${users.map(u=>`
+      <div class="user-row">
+        <div class="who"><b>${u.name}</b><span>${u.email} · ${u.role==='owner'?'Propriétaire':TRADES[u.trade].label}</span></div>
+        ${u.id!==state.user.id ? `<button class="btn btn-outline-gold btn-sm" data-del="${u.id}">${ICONS.trash}</button>` : ''}
+      </div>`).join('')}
+  </div>
+  <h3 class="section-title">Ajouter un accès</h3>
+  <div class="inline-form">
+    <div class="field"><label>Nom</label><input id="nName" placeholder="Ex. Équipe Électricité"></div>
+    <div class="field"><label>Email</label><input id="nEmail" type="email" placeholder="nouveau@chantier.local"></div>
+    <div class="field"><label>Mot de passe</label><input id="nPassword" type="password" placeholder="6 caractères minimum"></div>
+    <div class="field"><label>Rôle</label>
+      <select id="nRole"><option value="artisan">Artisan</option><option value="owner">Propriétaire</option></select>
+    </div>
+    <div class="field" id="nTradeField"><label>Corps de métier</label>
+      <select id="nTrade">${Object.entries(TRADES).map(([k,t])=>`<option value="${k}">${t.label}</option>`).join('')}</select>
+    </div>
+    <button class="btn btn-gold btn-block" id="createUser">${ICONS.plus} Créer le compte</button>
+  </div>`;
+}
+function attachIntervenantsFormEvents(){
+  const roleSel=document.getElementById('nRole'); const tradeField=document.getElementById('nTradeField');
+  const sync=()=>{ tradeField.style.display = roleSel.value==='artisan' ? 'block':'none'; };
+  sync(); roleSel.onchange=sync;
+  document.getElementById('createUser').onclick=async()=>{
+    const name=document.getElementById('nName').value.trim();
+    const email=document.getElementById('nEmail').value.trim();
+    const password=document.getElementById('nPassword').value;
+    const role=roleSel.value;
+    const trade=document.getElementById('nTrade').value;
+    if(!name||!email||!password){ toast('Merci de remplir tous les champs'); return; }
+    try{
+      await api('/auth/users',{method:'POST',body:JSON.stringify({name,email,password,role,trade})});
+      await loadUsers(); renderPageOnly(); toast('Compte créé');
+    }catch(err){ toast(err.message); }
+  };
+}
+function openAddUserModal(){
+  document.getElementById('nName')?.focus();
+}
+
+/* ===================== COMPTE ===================== */
+function renderComptePage(){
+  const u=state.user;
+  return `
+  <div class="page-head"><h2>Compte</h2></div>
+  <div class="compte-card">
+    <div class="compte-avatar">${u.name.charAt(0).toUpperCase()}</div>
+    <h3>${u.name}</h3>
+    <div class="compte-role">${u.role==='owner'?'Propriétaire':TRADES[u.trade].label}</div>
+    <div class="compte-email">${u.email}</div>
+  </div>
+  <button class="btn btn-outline-gold btn-block" id="compteLogout">${ICONS.logout} Déconnexion</button>`;
+}
+
+/* ===================== TASK DETAIL MODAL ===================== */
+function closeModal(){ document.getElementById('modalRoot').innerHTML=''; stopRecordingIfAny(); state.capture={photos:[],videos:[],audio:null}; }
 function openTaskModal(id){
   const t=findTask(id); const tr=TRADES[t.trade]; const st=stMap[t.status];
   let actions='';
-  if(t.status==='attente_validation'){
-    actions=`
-    <div class="action-row">
-      <button class="btn btn-green" id="validateWork">${ICONS.check} Valider le travail</button>
-      <button class="btn btn-red" id="rejectWork">${ICONS.x} Rejeter</button>
-    </div>
-    <div class="field" style="margin-top:10px"><label>Commentaire (si rejet)</label><textarea id="rejectComment" placeholder="Expliquer ce qui doit être repris..."></textarea></div>`;
-  } else if(t.status==='valide'){
-    actions=`<div class="action-row"><button class="btn btn-gold" id="validatePayment">${ICONS.coin} Valider le paiement (${fmt(t.montant)})</button></div>`;
-  } else if(t.status==='paye'){
-    actions=`<div class="small-note">${ICONS.check} Étape validée et payée.</div>`;
-  } else {
-    actions=`<div class="small-note">En attente d'exécution ou de dépôt de preuve par l'artisan.</div>`;
+  if(state.user.role==='owner'){
+    if(t.status==='attente_validation'){
+      actions=`
+      <div class="action-row">
+        <button class="btn btn-primary" id="validateWork">${ICONS.check} Valider le travail</button>
+        <button class="btn btn-outline-gold" id="rejectWork">${ICONS.x} Rejeter</button>
+      </div>
+      <div class="field" style="margin-top:10px"><label>Commentaire (si rejet)</label><textarea id="rejectComment" placeholder="Expliquer ce qui doit être repris..."></textarea></div>`;
+    } else if(t.status==='valide'){
+      actions=`<div class="action-row"><button class="btn btn-gold" id="validatePayment">${ICONS.coin} Valider le paiement (${fmt(t.montant)})</button></div>`;
+    } else if(t.status==='paye'){
+      actions=`<div class="small-note">${ICONS.check} Étape validée et payée.</div>`;
+    } else {
+      actions=`<div class="small-note">En attente d'exécution ou de dépôt de preuve par l'artisan.</div>`;
+    }
   }
   document.getElementById('modalRoot').innerHTML=`
   <div class="overlay" id="ov">
@@ -341,18 +608,18 @@ function openTaskModal(id){
   document.getElementById('ov').onclick=(e)=>{ if(e.target.id==='ov') closeModal(); };
   const vw=document.getElementById('validateWork');
   if(vw) vw.onclick=async()=>{
-    try{ await api(`/tasks/${t.id}/validate`,{method:'PATCH',body:JSON.stringify({approve:true})}); await refreshTasks(); closeModal(); render(); toast('Travail validé ✓'); }
+    try{ await api(`/tasks/${t.id}/validate`,{method:'PATCH',body:JSON.stringify({approve:true})}); await refreshTasks(); closeModal(); renderPageOnly(); toast('Travail validé ✓'); }
     catch(err){ toast(err.message); }
   };
   const rj=document.getElementById('rejectWork');
   if(rj) rj.onclick=async()=>{
     const c=document.getElementById('rejectComment').value.trim();
-    try{ await api(`/tasks/${t.id}/validate`,{method:'PATCH',body:JSON.stringify({approve:false,comment:c})}); await refreshTasks(); closeModal(); render(); toast("Travail renvoyé à l'artisan"); }
+    try{ await api(`/tasks/${t.id}/validate`,{method:'PATCH',body:JSON.stringify({approve:false,comment:c})}); await refreshTasks(); closeModal(); renderPageOnly(); toast("Travail renvoyé à l'artisan"); }
     catch(err){ toast(err.message); }
   };
   const vp=document.getElementById('validatePayment');
   if(vp) vp.onclick=async()=>{
-    try{ await api(`/tasks/${t.id}/pay`,{method:'PATCH'}); await refreshTasks(); closeModal(); render(); toast('Paiement validé 💰'); }
+    try{ await api(`/tasks/${t.id}/pay`,{method:'PATCH'}); await refreshTasks(); state.financeCache=null; closeModal(); renderPageOnly(); toast('Paiement validé 💰'); }
     catch(err){ toast(err.message); }
   };
 }
@@ -367,7 +634,7 @@ function openAddTaskModal(){
         <div class="field"><label>Titre de la tâche</label><input id="fTitle" placeholder="Ex. Pose du carrelage salon"></div>
         <div class="field"><label>Description</label><textarea id="fDesc" placeholder="Détails de l'étape à réaliser"></textarea></div>
         <div class="field"><label>Montant (FCFA)</label><input id="fMontant" type="number" placeholder="Ex. 250000"></div>
-        <button class="btn btn-orange btn-block" id="createTask">${ICONS.check} Créer la tâche</button>
+        <button class="btn btn-primary btn-block" id="createTask">${ICONS.check} Créer la tâche</button>
       </div>
     </div>
   </div>`;
@@ -379,7 +646,7 @@ function openAddTaskModal(){
     const montant=parseInt(document.getElementById('fMontant').value)||0;
     const trade=document.getElementById('fTrade').value;
     if(!title){ toast('Merci de saisir un titre'); return; }
-    try{ await api('/tasks',{method:'POST',body:JSON.stringify({trade,title,desc,montant})}); await refreshTasks(); closeModal(); render(); toast('Tâche ajoutée'); }
+    try{ await api('/tasks',{method:'POST',body:JSON.stringify({trade,title,desc,montant})}); await refreshTasks(); closeModal(); renderPageOnly(); toast('Tâche ajoutée'); }
     catch(err){ toast(err.message); }
   };
 }
@@ -397,27 +664,26 @@ function openProofModal(id){
         <div class="field"><label>${ICONS.camera} Photos courtes</label>
           <div class="capture-zone">
             <input type="file" accept="image/*" capture="environment" id="photoInput" style="display:none" multiple>
-            <button class="btn btn-outline btn-sm" id="addPhotoBtn">${ICONS.camera} Prendre / choisir une photo</button>
+            <button class="btn btn-outline-gold btn-sm" id="addPhotoBtn">${ICONS.camera} Prendre / choisir une photo</button>
             <div id="thumbs" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;justify-content:center"></div>
           </div>
         </div>
-        <div class="field"><label>${ICONS.video} Vidéo courte (2 max, restez brefs)</label>
+        <div class="field"><label>${ICONS.video} Vidéo courte (2 max)</label>
           <div class="capture-zone">
             <input type="file" accept="video/*" capture="environment" id="videoInput" style="display:none">
-            <button class="btn btn-outline btn-sm" id="addVideoBtn">${ICONS.video} Filmer / choisir une vidéo</button>
+            <button class="btn btn-outline-gold btn-sm" id="addVideoBtn">${ICONS.video} Filmer / choisir une vidéo</button>
             <div id="videoThumbs" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;justify-content:center"></div>
-            <div class="small-note">Gardez la vidéo très courte (10-15 secondes) pour un envoi rapide.</div>
+            <div class="small-note">Gardez la vidéo très courte (10-15 secondes).</div>
           </div>
         </div>
         <div class="field"><label>${ICONS.mic} Note vocale courte (30s max)</label>
           <div class="capture-zone">
-            <button class="btn btn-outline btn-sm" id="recBtn">${ICONS.mic} Démarrer l'enregistrement</button>
+            <button class="btn btn-outline-gold btn-sm" id="recBtn">${ICONS.mic} Démarrer l'enregistrement</button>
             <div id="recStatus"></div>
             <div id="audioPreview"></div>
           </div>
         </div>
-        <button class="btn btn-orange btn-block" id="submitProof">${ICONS.check} Envoyer pour validation</button>
-        <div class="small-note">La tâche passera en « Attente de validation » et le propriétaire sera notifié.</div>
+        <button class="btn btn-primary btn-block" id="submitProof">${ICONS.check} Envoyer pour validation</button>
       </div>
     </div>
   </div>`;
@@ -437,7 +703,7 @@ function openProofModal(id){
   videoInput.onchange=async()=>{
     const file=videoInput.files[0];
     if(file){
-      if(file.size>25*1024*1024){ toast('Vidéo trop lourde (25 Mo max) — filmez plus court'); videoInput.value=''; return; }
+      if(file.size>25*1024*1024){ toast('Vidéo trop lourde (25 Mo max)'); videoInput.value=''; return; }
       const dataUrl=await fileToDataUrl(file);
       state.capture.videos.push(dataUrl);
       renderVideoThumbs();
@@ -449,7 +715,7 @@ function openProofModal(id){
     if(state.capture.photos.length===0 && state.capture.videos.length===0 && !state.capture.audio){ toast('Ajoutez au moins une photo, une vidéo ou une note vocale'); return; }
     try{
       await api(`/tasks/${t.id}/proof`,{method:'PATCH',body:JSON.stringify({photos:state.capture.photos,videos:state.capture.videos,audio:state.capture.audio})});
-      await refreshTasks(); closeModal(); render(); toast('Preuve envoyée, en attente de validation ✓');
+      await refreshTasks(); closeModal(); renderPageOnly(); toast('Preuve envoyée, en attente de validation ✓');
     }catch(err){ toast(err.message); }
   };
 }
@@ -464,11 +730,7 @@ function renderVideoThumbs(){
   wrap.querySelectorAll('.rm').forEach(b=>{ b.onclick=()=>{ state.capture.videos.splice(+b.dataset.vi,1); renderVideoThumbs(); }; });
 }
 function fileToDataUrl(file){
-  return new Promise((resolve)=>{
-    const reader=new FileReader();
-    reader.onload=()=>resolve(reader.result);
-    reader.readAsDataURL(file);
-  });
+  return new Promise((resolve)=>{ const reader=new FileReader(); reader.onload=()=>resolve(reader.result); reader.readAsDataURL(file); });
 }
 function compressImage(file){
   return new Promise((resolve)=>{
@@ -525,142 +787,6 @@ async function toggleRecording(){
 function stopRecordingIfAny(){
   if(state.rec.mediaRecorder && state.rec.mediaRecorder.state==='recording') state.rec.mediaRecorder.stop();
   clearInterval(state.rec.timer);
-}
-
-/* ---------- Owner: gestion des comptes ---------- */
-async function openUsersModal(){
-  let users=[];
-  try{ const r=await api('/auth/users'); users=r.users; }catch(err){ toast(err.message); return; }
-  renderUsersModal(users);
-}
-function renderUsersModal(users){
-  document.getElementById('modalRoot').innerHTML=`
-  <div class="overlay" id="ov">
-    <div class="modal">
-      <div class="modal-head"><div><h3>${ICONS.users} Comptes</h3><div class="trade-line">Propriétaire et artisans ayant accès</div></div><button class="x-btn" id="closeM">${ICONS.x}</button></div>
-      <div class="modal-body">
-        <div id="userList">
-          ${users.map(u=>`
-            <div class="user-row">
-              <div class="who"><b>${u.name}</b><span>${u.email} · ${u.role==='owner'?'Propriétaire':TRADES[u.trade].label}</span></div>
-              ${u.id!==state.user.id ? `<button class="btn btn-red btn-sm" data-del="${u.id}">${ICONS.trash}</button>` : ''}
-            </div>`).join('')}
-        </div>
-        <hr style="border:none;border-top:1px solid var(--line);margin:16px 0">
-        <h3 style="font-family:var(--font-d);font-size:14px;text-transform:uppercase;margin:0 0 10px">Ajouter un accès</h3>
-        <div class="field"><label>Nom</label><input id="nName" placeholder="Ex. Équipe Électricité"></div>
-        <div class="field"><label>Email</label><input id="nEmail" type="email" placeholder="nouveau@chantier.local"></div>
-        <div class="field"><label>Mot de passe</label><input id="nPassword" type="password" placeholder="6 caractères minimum"></div>
-        <div class="field"><label>Rôle</label>
-          <select id="nRole">
-            <option value="artisan">Artisan</option>
-            <option value="owner">Propriétaire</option>
-          </select>
-        </div>
-        <div class="field" id="nTradeField"><label>Corps de métier</label>
-          <select id="nTrade">${Object.entries(TRADES).map(([k,t])=>`<option value="${k}">${t.label}</option>`).join('')}</select>
-        </div>
-        <button class="btn btn-orange btn-block" id="createUser">${ICONS.plus} Créer le compte</button>
-      </div>
-    </div>
-  </div>`;
-  document.getElementById('closeM').onclick=closeModal;
-  document.getElementById('ov').onclick=(e)=>{ if(e.target.id==='ov') closeModal(); };
-  document.querySelectorAll('[data-del]').forEach(b=>{
-    b.onclick=async()=>{
-      try{ await api(`/auth/users/${b.dataset.del}`,{method:'DELETE'}); const r=await api('/auth/users'); renderUsersModal(r.users); toast('Accès supprimé'); }
-      catch(err){ toast(err.message); }
-    };
-  });
-  const roleSel=document.getElementById('nRole'); const tradeField=document.getElementById('nTradeField');
-  const syncTrade=()=>{ tradeField.style.display = roleSel.value==='artisan' ? 'block':'none'; };
-  syncTrade(); roleSel.onchange=syncTrade;
-  document.getElementById('createUser').onclick=async()=>{
-    const name=document.getElementById('nName').value.trim();
-    const email=document.getElementById('nEmail').value.trim();
-    const password=document.getElementById('nPassword').value;
-    const role=roleSel.value;
-    const trade=document.getElementById('nTrade').value;
-    if(!name||!email||!password){ toast('Merci de remplir tous les champs'); return; }
-    try{
-      await api('/auth/users',{method:'POST',body:JSON.stringify({name,email,password,role,trade})});
-      const r=await api('/auth/users'); renderUsersModal(r.users); toast('Compte créé');
-    }catch(err){ toast(err.message); }
-  };
-}
-
-/* ---------- Owner: module financier ---------- */
-const FINANCE_TYPES={
-  financement:{label:'Financement reçu',color:'var(--green)',sign:1},
-  paiement_etape:{label:"Paiement d'étape",color:'var(--gold)',sign:-1},
-  depense:{label:'Dépense',color:'var(--red)',sign:-1},
-  avance:{label:'Avance / prêt',color:'var(--blue)',sign:-1},
-};
-async function openFinanceModal(){
-  let payload;
-  try{ payload=await api('/finance'); }catch(err){ toast(err.message); return; }
-  renderFinanceModal(payload);
-}
-function renderFinanceModal({transactions,summary}){
-  document.getElementById('modalRoot').innerHTML=`
-  <div class="overlay" id="ov">
-    <div class="modal" style="max-width:600px">
-      <div class="modal-head"><div><h3>${ICONS.wallet} Finances</h3><div class="trade-line">Paiements, dépenses et avances du chantier</div></div><button class="x-btn" id="closeM">${ICONS.x}</button></div>
-      <div class="modal-body">
-        <div class="finance-summary">
-          <div class="finance-stat"><span>Budget total (tâches)</span><b>${fmt(summary.budgetTotal)}</b></div>
-          <div class="finance-stat"><span>Financement reçu</span><b style="color:var(--green)">${fmt(summary.financement)}</b></div>
-          <div class="finance-stat"><span>Payé aux artisans</span><b style="color:var(--gold)">${fmt(summary.paiementsEtapes)}</b></div>
-          <div class="finance-stat"><span>Dépenses</span><b style="color:var(--red)">${fmt(summary.depenses)}</b></div>
-          <div class="finance-stat"><span>Avances / prêts</span><b style="color:var(--blue)">${fmt(summary.avances)}</b></div>
-          <div class="finance-stat finance-solde"><span>Solde disponible</span><b>${fmt(summary.solde)}</b></div>
-        </div>
-        <hr style="border:none;border-top:1px solid var(--line);margin:16px 0">
-        <h3 style="font-family:var(--font-d);font-size:14px;text-transform:uppercase;margin:0 0 10px">Historique</h3>
-        <div id="financeList">
-          ${transactions.length? transactions.map(f=>`
-            <div class="finance-row">
-              <div class="who">
-                <b style="color:${FINANCE_TYPES[f.type].color}">${FINANCE_TYPES[f.type].label}</b>
-                <span>${f.description} · ${f.date}</span>
-              </div>
-              <div class="finance-amt">${fmt(f.montant)}</div>
-              ${f.type!=='paiement_etape' ? `<button class="btn btn-red btn-sm" data-delf="${f.id}">${ICONS.trash}</button>` : ''}
-            </div>`).join('') : `<div class="small-note">Aucune transaction pour l'instant</div>`}
-        </div>
-        <hr style="border:none;border-top:1px solid var(--line);margin:16px 0">
-        <h3 style="font-family:var(--font-d);font-size:14px;text-transform:uppercase;margin:0 0 10px">Ajouter une transaction</h3>
-        <div class="field"><label>Type</label>
-          <select id="ftType">
-            <option value="financement">Financement reçu (prêt, apport, avance de fonds)</option>
-            <option value="depense">Dépense (matériaux, location, transport...)</option>
-            <option value="avance">Avance donnée à un artisan</option>
-          </select>
-        </div>
-        <div class="field"><label>Description</label><input id="ftDesc" placeholder="Ex. Achat ciment et fer à béton"></div>
-        <div class="field"><label>Montant (FCFA)</label><input id="ftMontant" type="number" placeholder="Ex. 120000"></div>
-        <button class="btn btn-orange btn-block" id="createFinance">${ICONS.plus} Ajouter</button>
-      </div>
-    </div>
-  </div>`;
-  document.getElementById('closeM').onclick=closeModal;
-  document.getElementById('ov').onclick=(e)=>{ if(e.target.id==='ov') closeModal(); };
-  document.querySelectorAll('[data-delf]').forEach(b=>{
-    b.onclick=async()=>{
-      try{ await api(`/finance/${b.dataset.delf}`,{method:'DELETE'}); openFinanceModal(); toast('Transaction supprimée'); }
-      catch(err){ toast(err.message); }
-    };
-  });
-  document.getElementById('createFinance').onclick=async()=>{
-    const type=document.getElementById('ftType').value;
-    const description=document.getElementById('ftDesc').value.trim();
-    const montant=parseInt(document.getElementById('ftMontant').value)||0;
-    if(!description||montant<=0){ toast('Merci de remplir la description et un montant valide'); return; }
-    try{
-      await api('/finance',{method:'POST',body:JSON.stringify({type,description,montant})});
-      openFinanceModal(); toast('Transaction ajoutée');
-    }catch(err){ toast(err.message); }
-  };
 }
 
 /* ===================== INIT ===================== */
